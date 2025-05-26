@@ -113,9 +113,3 @@ Graduate Student | Central Michigan University
 ## 📝 License
 
 This project is for educational and non-commercial use only. Dataset belongs to its original owner on Kaggle.
-
----
-
-## 📷 Screenshots (Optional)
-
-> Add visualizations or model performance screenshots here if needed.
