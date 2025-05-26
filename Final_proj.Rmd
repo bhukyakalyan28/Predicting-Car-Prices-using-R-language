@@ -1,0 +1,303 @@
+---
+title: "Final Project"
+author: "Kalyan B"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Set CRAN mirror
+options(repos = c(CRAN = "https://cran.r-project.org"))
+
+# Install and load required packages
+packages <- c("tidyverse", "ggplot2", "forcats", "caret", "gbm", "rpart", "readxl")
+installed_packages <- rownames(installed.packages())
+
+for (pkg in packages) {
+  if (!pkg %in% installed_packages) {
+    install.packages(pkg)
+  }
+  library(pkg, character.only = TRUE)
+}
+```
+
+```{r}
+install.packages(c("dplyr", "ggplot2", "tidyr", "stringr","caret","gbm","rpart","DescTools","forcats","tidyverse"))
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(caret)
+library(gbm)
+library(rpart)
+library(DescTools)
+library(forcats)
+library(tidyverse)
+```
+
+
+```{r}
+#load the dataset
+dataset <- read_excel("/Users/Shared/final_proj/true_car_listings.xlsx")
+
+
+# Displaying the original number of rows
+original_row_count <- nrow(dataset)
+cat("Original number of rows: ", original_row_count, "\n")
+```
+
+```{r}
+#Data Cleaning
+# Randomly sampling it to 10,000 rows
+set.seed(123) # For reproducibility
+data <- dataset %>% sample_n(10000)
+
+head(data)
+summary(data)
+str(data)
+
+# Checking if there are missing values
+sum(is.na(data))
+
+# Convert categorical variables to factors
+data$City <- as.factor(data$City)
+data$State <- as.factor(data$State)
+data$Make <- as.factor(data$Make)
+data$Model <- as.factor(data$Model)
+
+# Remove unnecessary columns because vin number is not needed for the prediction
+data <- data %>% select(-Vin)
+```
+
+```{r}
+#check for outliers
+# Plot to check for outliers in Mileage
+ggplot(data, aes(x = Mileage)) + 
+  geom_boxplot() +
+  ggtitle("Boxplot of Mileage") +
+  xlab("Mileage") +
+  ylab("Value")
+
+# Plot to check for outliers in Price
+ggplot(data, aes(x = Price)) + 
+  geom_boxplot() +
+  ggtitle("Boxplot of Price") +
+  xlab("Price") +
+  ylab("Value")
+
+# Calculate IQR for Mileage
+iqr_mileage <- IQR(data$Mileage, na.rm = TRUE)
+q1_mileage <- quantile(data$Mileage, 0.25, na.rm = TRUE)
+q3_mileage <- quantile(data$Mileage, 0.75, na.rm = TRUE)
+lower_bound_mileage <- q1_mileage - 1.5 * iqr_mileage
+upper_bound_mileage <- q3_mileage + 1.5 * iqr_mileage
+
+# Identify outliers in Mileage
+outliers_mileage <- data %>% 
+  filter(Mileage < lower_bound_mileage | Mileage > upper_bound_mileage)
+
+# Print outliers for Mileage
+print("Outliers in Mileage:")
+print(outliers_mileage)
+
+# Calculate IQR for Price
+iqr_price <- IQR(data$Price, na.rm = TRUE)
+q1_price <- quantile(data$Price, 0.25, na.rm = TRUE)
+q3_price <- quantile(data$Price, 0.75, na.rm = TRUE)
+lower_bound_price <- q1_price - 1.5 * iqr_price
+upper_bound_price <- q3_price + 1.5 * iqr_price
+
+# Identify outliers in Price
+outliers_price <- data %>% 
+  filter(Price < lower_bound_price | Price > upper_bound_price)
+
+# Print outliers for Price
+print("Outliers in Price:")
+print(outliers_price)
+```
+
+```{r}
+# Calculate the percentiles for Winsorization
+lower_bound_mileage <- quantile(data$Mileage, 0.05, na.rm = TRUE)
+upper_bound_mileage <- quantile(data$Mileage, 0.95, na.rm = TRUE)
+
+# Winsorize Mileage
+data$Mileage <- pmin(pmax(data$Mileage, lower_bound_mileage), upper_bound_mileage)
+
+# Calculate the percentiles for Price
+lower_bound_price <- quantile(data$Price, 0.05, na.rm = TRUE)
+upper_bound_price <- quantile(data$Price, 0.95, na.rm = TRUE)
+
+# Winsorize Price
+data$Price <- pmin(pmax(data$Price, lower_bound_price), upper_bound_price)
+```
+
+```{r}
+# Plot to check if outliers still exist after Winsorization
+ggplot(data, aes(x = Mileage)) + 
+  geom_boxplot() +
+  ggtitle("Boxplot of Mileage") +
+  xlab("Mileage") +
+  ylab("Value")
+
+# Plot to check for outliers in Price
+ggplot(data, aes(x = Price)) + 
+  geom_boxplot() +
+  ggtitle("Boxplot of Price") +
+  xlab("Price") +
+  ylab("Value")
+```
+
+```{r}
+#Scatter plots can help understand the relationship between Mileage and Price.
+ggplot(data, aes(x = Mileage, y = Price)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Mileage vs. Price", x = "Mileage", y = "Price") +
+  theme_minimal()
+
+```
+
+```{r}
+#Histograms help visualize the distribution of continuous variables.
+# Histogram for Mileage
+ggplot(data, aes(x = Mileage)) +
+  geom_histogram(binwidth = 5000, fill = "blue", color = "black") +
+  labs(title = "Distribution of Mileage", x = "Mileage", y = "Frequency") +
+  theme_minimal()
+
+# Histogram for Price
+ggplot(data, aes(x = Price)) +
+  geom_histogram(binwidth = 1000, fill = "green", color = "black") +
+  labs(title = "Distribution of Price", x = "Price", y = "Frequency") +
+  theme_minimal()
+
+```
+
+```{r}
+# Bar plot for State
+ggplot(data, aes(x = State)) +
+  geom_bar(fill = "lightgreen") +
+  labs(title = "Distribution of Cars by State", x = "State", y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+#Split the data into training and testing sets
+set.seed(123)  # For reproducibility
+trainIndex <- createDataPartition(data$Price, p = 0.8, list = FALSE)
+dataTrain <- data[trainIndex, ]
+dataTest <- data[-trainIndex, ]
+
+# Combine rare levels in City
+dataTrain$City <- fct_lump(dataTrain$City, n = 50)  # Keep top 50 levels, lump the rest
+dataTest$City <- fct_lump(dataTest$City, n = 50)    # Apply same to test data
+```
+
+```{r}
+#Linear Regression
+lm_model <- lm(Price ~ Mileage + Year + City + State + Make + Model, data = dataTrain)
+
+```
+
+
+```{r}
+# Ensure the levels of factors in the test set match those in the training set
+dataTest$City <- factor(dataTest$City, levels = levels(dataTrain$City))
+dataTest$State <- factor(dataTest$State, levels = levels(dataTrain$State))
+dataTest$Make <- factor(dataTest$Make, levels = levels(dataTrain$Make))
+dataTest$Model <- factor(dataTest$Model, levels = levels(dataTrain$Model))
+
+```
+
+```{r}
+#Decision Tree Model
+tree_model <- rpart(Price ~ Mileage + Year + City + State + Make + Model, data = dataTrain)
+
+# Make predictions on the test dataset
+tree_predictions <- predict(tree_model, newdata = dataTest)
+
+# Calculate performance metrics
+mae_tree <- mean(abs(dataTest$Price - tree_predictions))
+mse_tree <- mean((dataTest$Price - tree_predictions)^2)
+rsq_tree <- 1 - sum((dataTest$Price - tree_predictions)^2) / sum((dataTest$Price - mean(dataTest$Price))^2)
+
+# Print the performance metrics
+print(paste("MAE:", mae_tree))
+print(paste("MSE:", mse_tree))
+print(paste("R-squared:", rsq_tree))
+
+```
+
+```{r}
+#Gradient Boosting Machine
+gbm_model <- gbm(Price ~ Mileage + Year + City + State + Make + Model, 
+                 data = dataTrain, 
+                 distribution = "gaussian", 
+                 n.trees = 100, 
+                 interaction.depth = 3)
+summary(gbm_model)
+
+# Extract and print the variable importance
+variable_importance <- summary(gbm_model)
+
+# Sort the variable importance scores
+variable_importance <- variable_importance[order(-variable_importance$rel.inf), ]
+
+# Print the variable importance
+print(variable_importance)
+```
+
+```{r}
+#predicting using gbm model on testdata
+gbm_pred <- predict(gbm_model, newdata = dataTest, n.trees = 100)
+
+# Calculate performance metrics
+mae <- mean(abs(dataTest$Price - gbm_pred))
+mse <- mean((dataTest$Price - gbm_pred)^2)
+rsq <- 1 - sum((dataTest$Price - gbm_pred)^2) / sum((dataTest$Price - mean(dataTest$Price))^2)
+
+print(paste("MAE:", mae))
+print(paste("MSE:", mse))
+print(paste("R-squared:", rsq))
+
+#since gbm model is performing better than tree model
+#making predictions on custom data using gbm model
+custom_data <- data.frame(
+  Mileage = c(30000, 50000, 100000),
+  Year = c(2020, 2018, 2015),
+  City = c("San Francisco", "Los Angeles", "Chicago"),
+  State = c("CA", "CA", "IL"),
+  Make = c("Toyota", "Honda", "Ford"),
+  Model = c("Camry", "Civic", "Focus")
+)
+
+# Ensure factor levels match those in the training data
+custom_data$City <- factor(custom_data$City, levels = levels(dataTrain$City))
+custom_data$State <- factor(custom_data$State, levels = levels(dataTrain$State))
+custom_data$Make <- factor(custom_data$Make, levels = levels(dataTrain$Make))
+custom_data$Model <- factor(custom_data$Model, levels = levels(dataTrain$Model))
+
+# Predict on the custom data
+custom_predictions <- predict(gbm_model, newdata = custom_data)
+
+# Print the predictions
+print(custom_predictions)
+
+
+# Calculate errors between predictions and actual values
+errors <- abs(dataTest$Price - gbm_pred)
+
+# Define a threshold for acceptable error (e.g., 10% of the actual price)
+threshold <- 0.10
+acceptable_error <- dataTest$Price * threshold
+
+# Calculate percentage of predictions within the acceptable error range
+correct_predictions <- sum(errors <= acceptable_error)
+total_predictions <- length(errors)
+percentage_correct <- (correct_predictions / total_predictions) * 100
+
+# Print the percentage of correct predictions
+print(paste("Percentage of Correct Predictions:", round(percentage_correct, 2), "%"))
+```
